@@ -267,3 +267,18 @@ h2 { margin: 4px 0 0; font: 850 21px/1.2 var(--display); letter-spacing: -.01em;
   .auth-panel { padding:28px 22px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto !important; animation:none !important; transition:none !important; } }
+
+
+.app-footer {
+    width: 100%;
+    text-align: center;
+    padding: 20px 0;
+    margin-top: 30px;
+    color: #64748b;
+    font-size: 13px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.app-footer p {
+    margin: 0;
+}
