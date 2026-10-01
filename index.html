@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102638">
+  <meta name="description" content="Checklist jerárquico de necesidades por proyecto y área.">
+  <title>Bitácora de proyectos</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23102638'/%3E%3Cpath d='M17 17h30v30H17z' fill='none' stroke='%23f4b41a' stroke-width='5'/%3E%3Cpath d='m23 32 6 6 13-15' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <noscript>Esta aplicación requiere JavaScript.</noscript>
+
+  <section id="auth-screen" class="auth-screen hidden" aria-labelledby="auth-title">
+    <div class="auth-panel">
+      <div class="brand-lockup brand-lockup--dark">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <div><b>BITÁCORA</b><small>Control de necesidades</small></div>
+      </div>
+      <div class="auth-copy">
+        <span class="eyebrow">ACCESO SEGURO</span>
+        <h1 id="auth-title">Cada necesidad,<br>hasta quedar resuelta.</h1>
+        <p>Organiza proyectos, áreas y actividades con una trazabilidad simple: qué hace falta, desde cuándo y en qué estado está.</p>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <label>Correo electrónico<input id="auth-email" type="email" autocomplete="email" required placeholder="nombre@empresa.com"></label>
+        <label>Contraseña<input id="auth-password" type="password" autocomplete="current-password" minlength="6" required placeholder="Mínimo 6 caracteres"></label>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <button class="btn btn--primary btn--wide" type="submit">Ingresar</button>
+        <button id="signup-btn" class="btn btn--ghost btn--wide" type="button">Crear cuenta</button>
+      </form>
+      <p class="auth-note">El acceso se habilita al conectar Supabase en <code>config.js</code>.</p>
+    </div>
+    <aside class="auth-aside" aria-hidden="true">
+      <div class="blueprint-card">
+        <span>PROYECTO / 02</span>
+        <strong>Sistema de AA<br>Farmacia</strong>
+        <div class="blueprint-line"><i></i><b>75%</b></div>
+        <ul><li class="done">Contrato Daikin</li><li class="done">Cronograma Daikin</li><li>Fichas técnicas</li><li>Diagrama unifilar</li></ul>
+      </div>
+    </aside>
+  </section>
+
+  <div id="app" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <div><b>BITÁCORA</b><small>Control de necesidades</small></div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Navegación principal">
+        <button class="nav-link active" data-view="dashboard"><span class="nav-icon">⌁</span>Resumen</button>
+        <button class="nav-link" data-view="projects"><span class="nav-icon">▦</span>Proyectos</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="status-light"></span>
+        <div><b id="storage-label">Modo demostración</b><small id="storage-detail">Datos guardados en este navegador</small></div>
+      </div>
+      <div class="sidebar-user">
+        <div class="avatar" id="user-avatar">DM</div>
+        <div><b id="user-name">Demostración</b><small id="user-email">Sin conexión</small></div>
+        <button id="logout-btn" title="Cerrar sesión" aria-label="Cerrar sesión">↗</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">TABLERO OPERATIVO</span>
+          <h1 id="page-title">Resumen de avance</h1>
+          <p id="today-label"></p>
+        </div>
+        <div class="top-actions">
+          <button id="export-btn" class="btn btn--secondary"><span>↓</span> Exportar CSV</button>
+          <button id="add-project-btn" class="btn btn--primary"><span>＋</span> Nuevo proyecto</button>
+        </div>
+      </header>
+
+      <section id="dashboard-view" class="view">
+        <div id="kpi-grid" class="kpi-grid" aria-label="Indicadores de avance"></div>
+        <section class="progress-strip">
+          <div><span class="eyebrow">AVANCE GENERAL</span><b id="progress-label">0% resuelto</b></div>
+          <div class="progress-track"><span id="progress-bar"></span></div>
+          <small id="progress-detail">Sin ítems registrados</small>
+        </section>
+        <div class="section-heading">
+          <div><span class="eyebrow">PORTAFOLIO</span><h2>Proyectos activos</h2></div>
+          <button class="text-btn" data-go-projects>Ver detalle →</button>
+        </div>
+        <div id="project-cards" class="project-cards"></div>
+        <div class="dashboard-bottom">
+          <section class="panel">
+            <div class="panel-title"><div><span class="eyebrow">ATENCIÓN</span><h2>Pendientes más antiguos</h2></div><span id="old-pending-count" class="count-pill">0</span></div>
+            <div id="old-pending-list" class="compact-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-title"><div><span class="eyebrow">COMPRAS</span><h2>Necesidades con trámite</h2></div><span id="purchase-count" class="count-pill">0</span></div>
+            <div id="purchase-list" class="compact-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="projects-view" class="view hidden">
+        <div class="filter-bar">
+          <label class="search-field"><span>⌕</span><input id="search-input" type="search" placeholder="Buscar proyecto, área, necesidad, SOLPED u OC…"></label>
+          <label><span>Proyecto</span><select id="project-filter"><option value="all">Todos</option></select></label>
+          <label><span>Estado</span><select id="status-filter"><option value="all">Todos</option><option value="pending">Pendiente</option><option value="ok">OK</option></select></label>
+          <label><span>Compra</span><select id="purchase-filter"><option value="all">Todas</option><option value="with">Con SOLPED/OC</option><option value="without">Sin SOLPED/OC</option></select></label>
+          <button id="clear-filters-btn" class="icon-btn" title="Limpiar filtros" aria-label="Limpiar filtros">↺</button>
+        </div>
+        <div class="results-line"><span id="results-count">0 ítems</span><span id="filters-active"></span></div>
+        <div id="project-list" class="project-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="form-dialog" class="modal">
+    <form id="entity-form" method="dialog">
+      <div class="modal-head"><div><span id="modal-eyebrow" class="eyebrow">NUEVO REGISTRO</span><h2 id="modal-title">Crear</h2></div><button class="icon-btn" value="cancel" aria-label="Cerrar">×</button></div>
+      <div id="form-fields" class="form-fields"></div>
+      <p id="form-error" class="form-error" role="alert"></p>
+      <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="form-submit" class="btn btn--primary" type="submit">Guardar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="modal modal--small">
+    <form method="dialog">
+      <div class="danger-mark">!</div>
+      <h2 id="confirm-title">Eliminar registro</h2>
+      <p id="confirm-message">Esta acción no se puede deshacer.</p>
+      <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="confirm-delete-btn" class="btn btn--danger" value="confirm">Eliminar</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
