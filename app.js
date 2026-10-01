@@ -120,24 +120,86 @@
         this.saveSession(refreshed); return true;
       } catch (_) { this.clearSession(); return false; }
     }
+    normalizeProject(row) {
+      return {
+        ...row,
+        description: row.description ?? row.company ?? '',
+        status: row.status ?? 'active'
+      };
+    }
+    normalizeArea(row) {
+      return {
+        ...row,
+        description: row.description ?? '',
+        sort_order: row.sort_order ?? 1
+      };
+    }
+    normalizeItem(row, areas = state.data.areas) {
+      const area = areas.find(a => a.id === row.area_id);
+      return {
+        ...row,
+        project_id: row.project_id ?? area?.project_id ?? '',
+        identified_on: row.identified_on ?? row.identified_date ?? isoDate(),
+        status: String(row.status ?? 'PENDIENTE').toLowerCase() === 'ok' ? 'ok' : 'pending',
+        purchase_order: row.purchase_order ?? row.oc ?? ''
+      };
+    }
+    toDatabaseRecord(table, record, creating = false) {
+      if (table === 'projects') {
+        const payload = {
+          code: record.code || `PRY-${Date.now().toString().slice(-6)}`,
+          name: record.name,
+          company: record.description || null
+        };
+        if (creating) payload.owner_id = state.session.user.id;
+        return payload;
+      }
+      if (table === 'areas') {
+        return {
+          project_id: record.project_id,
+          name: record.name
+        };
+      }
+      return {
+        area_id: record.area_id,
+        identified_date: record.identified_on,
+        description: record.description,
+        status: record.status === 'ok' ? 'OK' : 'PENDIENTE',
+        item_type: record.item_type || 'GENERAL',
+        solped: record.solped || null,
+        oc: record.purchase_order || null,
+        observations: record.observations || null
+      };
+    }
     async init() {
-      const [projects, areas, items] = await Promise.all([
+      const [projectRows, areaRows, itemRows] = await Promise.all([
         this.request('/rest/v1/projects?select=*&order=created_at.asc'),
-        this.request('/rest/v1/areas?select=*&order=sort_order.asc,created_at.asc'),
-        this.request('/rest/v1/checklist_items?select=*&order=identified_on.asc,created_at.asc')
+        this.request('/rest/v1/areas?select=*&order=created_at.asc'),
+        this.request('/rest/v1/checklist_items?select=*&order=identified_date.asc,created_at.asc')
       ]);
+      const projects = projectRows.map(row => this.normalizeProject(row));
+      const areas = areaRows.map(row => this.normalizeArea(row));
+      const items = itemRows.map(row => this.normalizeItem(row, areas));
       state.data = { projects, areas, items };
     }
     async create(table, record) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
-      const rows = await this.request(`/rest/v1/${dbTable}`, { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ ...record, user_id: state.session.user.id }) });
-      const row = rows[0]; state.data[table].push(row); return row;
+      const payload = this.toDatabaseRecord(table, record, true);
+      const rows = await this.request(`/rest/v1/${dbTable}`, { method: 'POST', prefer: 'return=representation', body: JSON.stringify(payload) });
+      const raw = rows[0];
+      const row = table === 'projects' ? this.normalizeProject(raw) : table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
+      state.data[table].push(row);
+      return row;
     }
     async update(table, id, changes) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
-      const rows = await this.request(`/rest/v1/${dbTable}?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=representation', body: JSON.stringify(changes) });
+      const payload = this.toDatabaseRecord(table, changes, false);
+      const rows = await this.request(`/rest/v1/${dbTable}?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=representation', body: JSON.stringify(payload) });
+      const raw = rows[0];
+      const row = table === 'projects' ? this.normalizeProject(raw) : table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
       const index = state.data[table].findIndex(x => x.id === id);
-      state.data[table][index] = rows[0]; return rows[0];
+      state.data[table][index] = row;
+      return row;
     }
     async remove(table, id) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
