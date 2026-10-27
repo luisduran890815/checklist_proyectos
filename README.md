@@ -1,199 +1,119 @@
-# Bitácora de proyectos
+# Bitácora de proyectos 2.1
 
-Aplicación web para registrar y dar seguimiento a necesidades y actividades con la estructura **Proyecto → Área → ítems del checklist**. Su propósito es responder con rapidez: **qué se necesita, cuándo se identificó y si ya está resuelto**. SOLPED y OC son referencias opcionales; la aplicación no pretende ser un sistema de costos.
+Aplicación web para seguimiento operativo con estructura **Proyecto → Área → Actividad**, checklist, compras y **diagrama de Gantt interactivo**. Está construida con HTML, CSS y JavaScript estándar, sin framework de frontend.
 
-![Resumen de avance](docs/screenshots/dashboard.png)
+## Qué incluye esta actualización
 
-> También se incluyen capturas de la vista de proyectos, la versión móvil y la autenticación en `docs/screenshots/`.
-
-## Funcionalidades
-
-- Creación, consulta, edición y eliminación de proyectos, áreas e ítems.
-- Estado de cada ítem: **Pendiente** u **OK**, con cambio rápido desde la tabla.
-- Fecha de identificación, descripción, observaciones, SOLPED y orden de compra (OC).
-- Resumen de avance general y por proyecto.
-- Listas de pendientes más antiguos y necesidades con trámite de compra.
-- Búsqueda global y filtros por proyecto, estado y presencia de SOLPED/OC.
-- Exportación a CSV compatible con Excel en configuración regional en español.
+- Cronograma Gantt por proyecto, con escalas de día, semana y mes.
+- Barras por fecha inicial y final, línea de hoy y estados: terminado, en ejecución, vencido y por iniciar.
+- Actualización del avance desde el propio Gantt en pasos de 5 %.
+- Programación por fecha de inicio, duración en días calendario y fecha final calculada.
+- Responsable, proveedor y área visibles en el cronograma.
+- Lista separada de actividades sin programación o con fechas por corregir.
+- Persistencia de estado del proyecto, descripción y orden de las áreas.
+- Exportación CSV con avance, responsable, proveedor, fechas y duración.
 - Diseño adaptable para escritorio, tableta y móvil.
-- Autenticación por correo/contraseña con Supabase Auth.
-- Administración gráfica de accesos por proyecto, sin consultas SQL repetitivas.
-- Roles **Propietario**, **Administrador**, **Editor** y **Visualizador** protegidos con RLS.
-- Persistencia en PostgreSQL/Supabase y políticas RLS por proyecto y membresía.
-- Modo demostración completamente funcional con datos locales y ejemplos de Rehabilitación y Sistema de AA Farmacia.
-- Despliegue preparado para Netlify y GitHub Pages.
+- Scripts de validación y build restaurados; configuración para Netlify y GitHub Pages.
 
-## Inicio inmediato: modo demostración
+## Estructura
 
-No requiere instalación ni conexión:
+```text
+bitacora-proyectos-gantt/
+├── index.html
+├── styles.css
+├── app.js
+├── config.js                    # Configuración local; no subir a Git
+├── config.example.js
+├── .env.example
+├── netlify.toml
+├── package.json
+├── scripts/
+│   ├── build.mjs
+│   └── check.mjs
+├── supabase/migrations/
+│   ├── 202610010001_initial.sql
+│   └── 202610270001_gantt_update.sql
+└── .github/workflows/pages.yml
+```
 
-1. Descomprima el proyecto.
+## Prueba inmediata sin Supabase
+
+1. En `config.js`, deje `DEMO_MODE: true` o quite las credenciales.
 2. Abra `index.html` en un navegador moderno.
-3. La app iniciará con datos de muestra y guardará los cambios en `localStorage`.
-4. El botón de salida de la barra lateral reinicia la demostración.
+3. Entre a un proyecto desde **Resumen** o **Proyectos**.
+4. La pestaña inicial será **Cronograma Gantt**.
 
-También puede servir la carpeta por HTTP:
+La demostración usa `localStorage`. Si ya usó una versión anterior, los datos se migran en el navegador y los campos nuevos reciben valores predeterminados.
+
+También puede servir el proyecto por HTTP:
 
 ```bash
 python3 -m http.server 8080
-# Abra http://localhost:8080
+# Abrir http://localhost:8080
 ```
 
-> El modo demostración es local a cada navegador. No sincroniza datos ni autentica usuarios.
+## Actualizar una base Supabase existente
 
-## Arquitectura
+Este es el paso obligatorio para que el Gantt guarde proveedor, responsable, fechas y avance.
 
-La aplicación usa HTML, CSS y JavaScript estándar, sin frameworks ni dependencias de frontend. Se comunica con Supabase mediante sus APIs REST de Auth y PostgREST. Esto reduce la superficie de dependencias y permite abrir la demo directamente desde disco.
+1. Abra **Supabase → SQL Editor**.
+2. Copie y ejecute completo:
 
 ```text
-bitacora-proyectos/
-├── index.html                     # Interfaz y diálogos
-├── styles.css                     # Identidad visual y diseño adaptable
-├── app.js                         # Estado, UI, CRUD, filtros, CSV y acceso REST
-├── config.js                      # Configuración local (demo activa)
-├── config.example.js              # Ejemplo para Supabase
-├── .env.example                   # Variables de compilación
-├── netlify.toml                   # Build, publicación, headers y SPA fallback
-├── package.json                   # Comandos de verificación y build
-├── scripts/
-│   ├── build.mjs                  # Genera dist/ e inyecta la configuración
-│   └── check.mjs                  # Verifica archivos y referencias
-├── supabase/migrations/
-│   ├── 202610010001_initial.sql   # Esquema inicial (si ya existe en el repositorio)
-│   └── 202610270001_project_access.sql # Membresías, funciones seguras y RLS por rol
-└── .github/workflows/pages.yml    # Build y despliegue a GitHub Pages
+supabase/migrations/202610270001_gantt_update.sql
 ```
 
-## Modelo de datos
+3. Espere el mensaje de ejecución correcta.
+4. Vuelva a desplegar la aplicación.
+5. Cierre sesión y vuelva a entrar. Si PostgREST mantuvo el esquema anterior en caché, espere unos segundos y recargue.
 
-### `projects`
+La migración es no destructiva: agrega columnas e índices y conserva los proyectos, áreas y actividades existentes.
 
-| Campo | Tipo | Uso |
-|---|---|---|
-| `id` | UUID | Identificador |
-| `owner_id` | UUID | Propietario autenticado e inmutable |
-| `name` | text | Nombre del proyecto |
-| `code` | text | Código opcional |
-| `description` | text | Alcance opcional |
-| `status` | enum | `active` o `closed` |
+## Instalación nueva de Supabase
 
-### `areas`
-
-Pertenece a un proyecto. Incluye nombre, descripción y `sort_order`.
-
-### `checklist_items`
-
-Pertenece a un área y un proyecto. Incluye `identified_on`, descripción, estado `pending`/`ok`, observaciones, `solped` y `purchase_order`.
-
-Las relaciones tienen eliminación en cascada: eliminar un proyecto elimina sus áreas e ítems; eliminar un área elimina sus ítems. La interfaz muestra una confirmación explícita antes de estas acciones.
-
-## Configuración de Supabase
-
-### 1. Crear el proyecto
-
-1. Cree un proyecto en [Supabase](https://supabase.com/).
-2. En **Authentication → Providers**, mantenga habilitado Email.
-3. Defina si exigirá confirmación de correo. Para una prueba interna rápida puede deshabilitarla temporalmente.
-
-### 2. Crear o actualizar la base de datos
-
-En una instalación nueva, ejecute primero la migración inicial existente en su repositorio. Para habilitar la administración gráfica de accesos sobre la tabla `project_members` ya creada, abra **SQL Editor**, copie todo el contenido de:
+Para una base nueva, ejecute solamente:
 
 ```text
-supabase/migrations/202610270001_project_access.sql
+supabase/migrations/202610010001_initial.sql
 ```
 
-y ejecútelo **una sola vez**. La migración conserva los proyectos y registros actuales, normaliza las membresías, registra al propietario de cada proyecto, crea las funciones usadas por la interfaz y reemplaza las políticas RLS por la matriz de roles.
+Crea:
 
-> Los usuarios que se agreguen desde la aplicación deben tener previamente una cuenta en **Supabase Authentication**. La interfaz no usa ni necesita la clave `service_role`.
+- `projects`: propietario, código, nombre, descripción y estado.
+- `areas`: proyecto, nombre, descripción y orden.
+- `checklist_items`: actividad, estado, compras, responsable, proveedor, fechas y avance.
+- Índices, marcas de actualización y políticas RLS por propietario.
 
-Si usa Supabase CLI:
-
-```bash
-supabase link --project-ref SU_REFERENCIA
-supabase db push
-```
-
-### 3. Obtener credenciales públicas
-
-En **Project Settings → API** copie:
-
-- Project URL → `SUPABASE_URL`
-- Clave `anon`/publishable → `SUPABASE_ANON_KEY`
-
-**Nunca utilice la clave `service_role` en esta aplicación.** La clave anon es pública por diseño; la seguridad real la aplican la autenticación y las políticas RLS.
-
-### 4. Desarrollo local conectado
-
-Copie `config.example.js` sobre `config.js` y complete los valores:
+Después configure `config.js` para desarrollo local:
 
 ```js
 window.APP_CONFIG = {
-  SUPABASE_URL: 'https://xxxx.supabase.co',
-  SUPABASE_ANON_KEY: 'clave-anon-publica',
+  SUPABASE_URL: 'https://TU-PROYECTO.supabase.co',
+  SUPABASE_ANON_KEY: 'TU_CLAVE_ANON_O_PUBLISHABLE',
   DEMO_MODE: false
 };
 ```
 
-Sirva la carpeta por HTTP. Supabase Auth no debe probarse abriendo el archivo mediante `file://`.
+Use únicamente la clave pública `anon`/publishable. **Nunca incluya `service_role` en una aplicación web.**
 
-## Roles y políticas RLS incluidas
+## Cómo usar el Gantt
 
-| Rol | Proyecto | Checklist/áreas | Gantt existente | Usuarios |
-|---|---|---|---|---|
-| **Propietario** | Control total | Crear, editar y eliminar | Crear, editar y eliminar | Administrar |
-| **Administrador** | Control total | Crear, editar y eliminar | Crear, editar y eliminar | Administrar |
-| **Editor** | Consulta | Crear, editar y eliminar | Crear, editar y eliminar | Sin acceso |
-| **Visualizador** | Solo lectura | Solo lectura | Solo lectura | Sin acceso |
+1. Cree o abra un proyecto.
+2. Cree al menos un área.
+3. Cree o edite una actividad.
+4. Complete **Fecha de inicio** y **Tiempo de ejecución**; la fecha final se calcula automáticamente.
+5. Seleccione **Día**, **Semana** o **Mes** en el cronograma.
+6. Mueva el control de avance de una actividad. Al llegar a 100 %, queda en estado **OK**.
+7. Haga clic en el nombre o la barra para editar sus datos.
 
-La seguridad se aplica en dos capas:
+Los colores indican:
 
-- La interfaz oculta y bloquea acciones no permitidas según el rol.
-- Supabase RLS vuelve a validar cada lectura y escritura, de modo que ocultar botones no es la única protección.
-- `projects.owner_id` conserva al propietario original; no puede cambiarse desde el API ni eliminarse de `project_members`.
-- Al crear un proyecto, la función segura `create_project_with_owner` toma el propietario directamente de `auth.uid()` y registra la membresía `owner` en la misma transacción.
-- El frontend siempre envía el JWT de la sesión en `Authorization: Bearer …`; la clave pública `anon` se usa únicamente como `apikey` y respaldo para los endpoints de autenticación.
-- Las funciones RPC permiten buscar un usuario por correo y administrar su membresía sin exponer la tabla `auth.users`.
-- Si ya existe una tabla cuyo nombre contiene `gantt` y tiene columna `project_id`, la migración le aplica la misma matriz RLS. No crea ni altera datos del Gantt.
+- Verde: terminado.
+- Amarillo: en ejecución.
+- Rojo: vencido.
+- Gris azulado: por iniciar.
 
-### Administración desde la aplicación
-
-1. Ingrese como propietario o administrador.
-2. Abra **Proyectos** y pulse el botón **👥 Administrar accesos** del proyecto.
-3. Escriba el correo de una cuenta ya registrada, seleccione el rol y pulse **Agregar acceso**.
-4. Para cambiar un rol, selecciónelo en la lista y pulse **✓**.
-5. Para revocar el acceso, pulse **×**. El propietario original aparece bloqueado y no puede quitarse.
-
-## Desplegar en Netlify
-
-### Desde GitHub
-
-1. Cree un repositorio y suba el contenido de esta carpeta.
-2. En Netlify, seleccione **Add new site → Import an existing project**.
-3. Seleccione el repositorio. Netlify detectará `netlify.toml`:
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-4. En **Site configuration → Environment variables**, agregue:
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-   - `DEMO_MODE=false`
-5. Despliegue.
-6. En Supabase, agregue la URL de Netlify en **Authentication → URL Configuration → Redirect URLs**.
-
-Para publicar una demostración sin Supabase, omita las dos credenciales y use `DEMO_MODE=true`.
-
-## Desplegar en GitHub Pages
-
-El workflow `.github/workflows/pages.yml` ya está incluido.
-
-1. Suba el proyecto a un repositorio con rama `main`.
-2. En **Settings → Pages → Build and deployment**, seleccione **GitHub Actions**.
-3. Para Supabase, cree los secretos del repositorio `SUPABASE_URL` y `SUPABASE_ANON_KEY`.
-4. Cree la variable del repositorio `DEMO_MODE` con `false`. Si no la define, el workflow publica la demo.
-5. Haga push a `main` o ejecute el workflow manualmente.
-6. Agregue la URL final de GitHub Pages a las Redirect URLs de Supabase.
-
-## Build y verificación
+## Verificación y build
 
 Requiere Node.js 18 o superior y no instala dependencias:
 
@@ -202,47 +122,50 @@ npm run check
 npm run build
 ```
 
-El build genera `dist/` con solo los cuatro archivos públicos. Las variables de entorno se inyectan en `dist/config.js`.
+`npm run build` genera `dist/`. Si no recibe credenciales por variables de entorno, crea una demostración segura.
 
-Ejemplo local conectado:
+Build conectado:
 
 ```bash
-SUPABASE_URL='https://xxxx.supabase.co' \
-SUPABASE_ANON_KEY='clave-anon-publica' \
+SUPABASE_URL='https://TU-PROYECTO.supabase.co' \
+SUPABASE_ANON_KEY='TU_CLAVE_PUBLICA' \
 DEMO_MODE=false npm run build
-npx serve dist
 ```
 
-## Flujo recomendado de uso
+## Despliegue en Netlify
 
-1. Cree el proyecto y opcionalmente asigne código y descripción.
-2. Cree una o más áreas/subtareas.
-3. Registre cada necesidad con su fecha de identificación.
-4. Use observaciones para contexto, bloqueo, responsable o siguiente paso.
-5. Complete SOLPED u OC solo cuando aplique.
-6. Cambie el estado a OK al resolver la necesidad.
-7. Revise el resumen y filtre pendientes o trámites de compra.
-8. Exporte CSV para cortes, comités o respaldo operativo.
+1. Suba la carpeta a GitHub.
+2. En Netlify, importe el repositorio.
+3. El archivo `netlify.toml` define `npm run build` y la publicación desde `dist`.
+4. Agregue las variables:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `DEMO_MODE=false`
+5. En Supabase, agregue la URL final a **Authentication → URL Configuration → Redirect URLs**.
 
-## Seguridad y operación
+## Despliegue en GitHub Pages
 
-- No almacene secretos privados en `config.js`, variables de frontend ni secretos de GitHub usados en el build. Solo la URL y clave anon/publishable.
-- Mantenga RLS habilitado. No cree políticas públicas amplias para “resolver” errores de acceso.
-- Para producción, habilite reglas de contraseña, confirmación de correo y MFA según las políticas de su organización.
-- El CSV se genera localmente y no envía información a terceros.
-- Defina una estrategia de respaldo desde Supabase para información crítica.
+1. Suba el proyecto a la rama `main`.
+2. En **Settings → Pages**, seleccione **GitHub Actions**.
+3. Cree los secretos `SUPABASE_URL` y `SUPABASE_ANON_KEY`.
+4. Cree la variable `DEMO_MODE` con valor `false`.
+5. Ejecute el workflow o haga `push`.
 
-## Solución de problemas
+## Seguridad
 
-- **La pantalla de autenticación no aparece:** confirme `DEMO_MODE: false` y que URL/clave no estén vacías.
-- **`Invalid login credentials`:** verifique cuenta, contraseña y confirmación de correo.
-- **No aparecen registros:** confirme que la migración de accesos se ejecutó y que el usuario figura como propietario o miembro del proyecto.
-- **No existe una cuenta registrada con ese correo:** pida al usuario crear o confirmar primero su cuenta en Supabase Authentication.
-- **Error RLS al crear un proyecto:** ejecute nuevamente `supabase/migrations/202610270001_project_access.sql`, publique el nuevo `app.js` y vuelva a iniciar sesión. No deshabilite RLS.
-- **Error RLS al guardar áreas, checklist o Gantt:** revise que la sesión siga activa y que el usuario tenga rol Propietario, Administrador o Editor.
-- **Netlify muestra demo:** revise las variables del sitio y lance un nuevo deploy sin caché.
-- **GitHub Pages muestra demo:** defina `DEMO_MODE=false` como variable del repositorio y agregue los dos secretos.
+- `config.js` está excluido por `.gitignore`; las plataformas generan `dist/config.js` desde variables de entorno.
+- La clave pública no sustituye las políticas RLS.
+- Las tablas solo son visibles para el propietario autenticado del proyecto.
+- La exportación CSV se produce localmente en el navegador.
+
+## Solución rápida de problemas
+
+- **Error indicando que no existe `planned_start`, `progress` u otra columna:** ejecute la migración de actualización.
+- **La aplicación abre en demostración:** revise las variables del despliegue y haga un deploy sin caché.
+- **No aparecen registros:** confirme que inició sesión con el propietario de esos proyectos y que RLS está activo.
+- **Una actividad no aparece en el Gantt:** complete ambas fechas y verifique que la final no sea anterior a la inicial.
+- **GitHub no incluye `config.js`:** es intencional; el workflow lo genera dentro de `dist/`.
 
 ## Licencia
 
-MIT. Consulte `LICENSE`.
+MIT © 2026 Luis Eduardo Durán Mora.
