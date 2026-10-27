@@ -113,6 +113,22 @@
       state.data[table] = state.data[table].filter(x => x.id !== id);
       this.persist();
     }
+    async listProjectMembers(projectId) {
+      const project = state.data.projects.find(candidate => candidate.id === projectId);
+      const owner = project ? [{ project_id:projectId, user_id:'demo-owner', email:'propietario@demo.local', role:'owner', is_owner:true }] : [];
+      return owner.concat((state.data.memberships || []).filter(member => member.project_id === projectId && member.role !== 'owner'));
+    }
+    async saveProjectMember(projectId,email,role) {
+      const normalizedEmail=String(email||'').trim().toLowerCase();
+      const existing=(state.data.memberships || []).find(member=>member.project_id===projectId && member.email===normalizedEmail);
+      if(existing) existing.role=role;
+      else state.data.memberships.push({project_id:projectId,user_id:uid(),email:normalizedEmail,role,is_owner:false});
+      this.persist();
+    }
+    async removeProjectMember(projectId,userId) {
+      state.data.memberships=(state.data.memberships || []).filter(member=>!(member.project_id===projectId && member.user_id===userId));
+      this.persist();
+    }
     async reset() { state.data = normalizeData(demoSeed()); this.persist(); }
   }
 
@@ -249,22 +265,34 @@
       if (table === 'areas') state.data.items = state.data.items.filter(x => x.area_id !== id);
       state.data[table] = state.data[table].filter(x => x.id !== id);
     }
+    async listProjectMembers(projectId) {
+      const data = await this.request('/rest/v1/rpc/get_project_members', { method:'POST', body:JSON.stringify({ p_project_id:projectId }) });
+      return Array.isArray(data) ? data : [];
+    }
+    async saveProjectMember(projectId,email,role) {
+      return this.request('/rest/v1/rpc/manage_project_member', { method:'POST', body:JSON.stringify({ p_project_id:projectId, p_email:String(email).trim().toLowerCase(), p_role:role }) });
+    }
+    async removeProjectMember(projectId,userId) {
+      return this.request('/rest/v1/rpc/remove_project_member', { method:'POST', body:JSON.stringify({ p_project_id:projectId, p_user_id:userId }) });
+    }
+
   }
 
   const service = DEMO ? new DemoService() : new SupabaseService();
-  const ROLE_LABELS = { owner:'Propietario', admin:'Administrador', editor:'Editor', viewer:'Visualizador' };
+  const ROLE_LABELS = Object.freeze({ owner:'Propietario', admin:'Administrador', editor:'Editor', viewer:'Visualizador' });
   function projectRole(projectId) {
-    const project = state.data.projects.find(p => p.id === projectId);
+    const project = state.data.projects.find(candidate => candidate.id === projectId);
     if (!project) return 'viewer';
-    if (project.access_role) return String(project.access_role).toLowerCase();
     if (project.owner_id && project.owner_id === state.session?.user?.id) return 'owner';
-    return state.data.memberships.find(m => m.project_id === projectId && m.user_id === state.session?.user?.id)?.role || 'viewer';
+    const membership = state.data.memberships.find(candidate => candidate.project_id === projectId && candidate.user_id === state.session?.user?.id);
+    return String(project.access_role || membership?.role || (DEMO ? 'owner' : 'viewer')).toLowerCase();
   }
   function canEditContent(projectId) { return ['owner','admin','editor'].includes(projectRole(projectId)); }
   function canManageProject(projectId) { return ['owner','admin'].includes(projectRole(projectId)); }
   function requirePermission(allowed, message='No tienes permisos para realizar esta acción.') {
-    if (!allowed) { toast(message,'error'); return false; }
-    return true;
+    if (allowed) return true;
+    toast(message,'error');
+    return false;
   }
 
   function toast(message, type = 'success') {
