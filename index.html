@@ -121,10 +121,10 @@
 
   <dialog id="form-dialog" class="modal">
     <form id="entity-form" method="dialog">
-      <div class="modal-head"><div><span id="modal-eyebrow" class="eyebrow">NUEVO REGISTRO</span><h2 id="modal-title">Crear</h2></div><button class="icon-btn" value="cancel" aria-label="Cerrar">×</button></div>
+      <div class="modal-head"><div><span id="modal-eyebrow" class="eyebrow">NUEVO REGISTRO</span><h2 id="modal-title">Crear</h2></div><button type="button" class="icon-btn" data-close-dialog="form-dialog" aria-label="Cerrar">×</button></div>
       <div id="form-fields" class="form-fields"></div>
       <p id="form-error" class="form-error" role="alert"></p>
-      <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="form-submit" class="btn btn--primary" type="submit">Guardar</button></div>
+      <div class="modal-actions"><button type="button" class="btn btn--ghost" data-close-dialog="form-dialog">Cancelar</button><button id="form-submit" class="btn btn--primary" type="submit">Guardar</button></div>
     </form>
   </dialog>
 
@@ -133,10 +133,25 @@
       <div class="danger-mark">!</div>
       <h2 id="confirm-title">Eliminar registro</h2>
       <p id="confirm-message">Esta acción no se puede deshacer.</p>
-      <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="confirm-delete-btn" class="btn btn--danger" value="confirm">Eliminar</button></div>
+      <div class="modal-actions"><button type="button" class="btn btn--ghost" data-close-dialog="confirm-dialog">Cancelar</button><button id="confirm-delete-btn" class="btn btn--danger" type="submit">Eliminar</button></div>
     </form>
   </dialog>
 
+  <dialog id="access-dialog" class="modal modal--access">
+    <div class="modal-head">
+      <div><span class="eyebrow">PERMISOS DEL PROYECTO</span><h2>Administrar accesos</h2><p id="access-project-name"></p></div>
+      <button type="button" class="icon-btn" data-close-dialog="access-dialog" aria-label="Cerrar">×</button>
+    </div>
+    <form id="access-form" class="access-form">
+      <label>Correo del usuario<input id="member-email" type="email" autocomplete="email" required placeholder="usuario@empresa.com"></label>
+      <label>Rol<select id="member-role" required><option value="admin">Administrador</option><option value="editor">Editor</option><option value="viewer" selected>Visualizador</option></select></label>
+      <button class="btn btn--primary" type="submit">Agregar acceso</button>
+    </form>
+    <p id="access-error" class="form-error" role="alert"></p>
+    <div class="access-help"><b>Administrador:</b> controla el proyecto y sus usuarios. <b>Editor:</b> actualiza checklist y Gantt. <b>Visualizador:</b> solo lectura.</div>
+    <section><span class="eyebrow">USUARIOS CON ACCESO</span><div id="access-members" class="access-members"></div></section>
+    <div class="modal-actions"><button type="button" class="btn btn--ghost" data-close-dialog="access-dialog">Cerrar</button></div>
+  </dialog>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
   <footer class="app-footer">
     <p>Desarrollado por <strong>Luis Eduardo Durán Mora</strong> © 2026</p>

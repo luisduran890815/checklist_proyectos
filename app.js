@@ -63,6 +63,7 @@
     return {
       projects: (safe.projects || []).map(p => ({ status:'active', description:'', code:'', ...p })),
       areas: (safe.areas || []).map(a => ({ description:'', sort_order:1, ...a })),
+      memberships: safe.memberships || [],
       items: (safe.items || []).map(i => ({
         observations:'', solped:'', purchase_order:'', supplier:'', responsible:'',
         planned_start:'', planned_end:'', progress:i.status === 'ok' ? 100 : 0, ...i,
@@ -72,7 +73,7 @@
   }
 
   const state = {
-    data: { projects:[], areas:[], items:[] },
+    data: { projects:[], areas:[], items:[], memberships:[] },
     session:null,
     view:'dashboard',
     filters:{ search:'', project:'all', status:'all', purchase:'all' },
@@ -81,7 +82,9 @@
     ganttZoom:'week',
     ganttSearch:'',
     editing:null,
-    pendingDelete:null
+    pendingDelete:null,
+    accessProjectId:null,
+    accessMembers:[]
   };
 
   class DemoService {
@@ -150,11 +153,14 @@
         this.saveSession(refreshed); return true;
       } catch (_) { this.clearSession(); return false; }
     }
-    normalizeProject(row) {
+    normalizeProject(row, memberships = state.data.memberships || []) {
+      const currentUserId = state.session?.user?.id;
+      const membership = memberships.find(m => m.project_id === row.id && m.user_id === currentUserId);
       return {
         ...row,
         description:row.description ?? row.company ?? '',
-        status:String(row.status ?? 'active').toLowerCase() === 'closed' ? 'closed' : 'active'
+        status:String(row.status ?? 'active').toLowerCase() === 'closed' ? 'closed' : 'active',
+        access_role: row.owner_id === currentUserId ? 'owner' : String(membership?.role || 'viewer').toLowerCase()
       };
     }
     normalizeArea(row) { return { ...row, description:row.description ?? '', sort_order:Number(row.sort_order) || 1 }; }
@@ -194,21 +200,39 @@
       return payload;
     }
     async init() {
-      const [projectRows, areaRows, itemRows] = await Promise.all([
+      const currentUserId = state.session.user.id;
+      const [projectRows, areaRows, itemRows, membershipRows] = await Promise.all([
         this.request('/rest/v1/projects?select=*&order=created_at.asc'),
         this.request('/rest/v1/areas?select=*&order=created_at.asc'),
-        this.request('/rest/v1/checklist_items?select=*&order=identified_date.asc,created_at.asc')
+        this.request('/rest/v1/checklist_items?select=*&order=identified_date.asc,created_at.asc'),
+        this.request(`/rest/v1/project_members?select=project_id,user_id,role&user_id=eq.${encodeURIComponent(currentUserId)}`)
       ]);
-      const projects = projectRows.map(row => this.normalizeProject(row));
+      const memberships = membershipRows.map(row => ({ ...row, role:String(row.role || 'viewer').toLowerCase() }));
+      const projects = projectRows.map(row => this.normalizeProject(row, memberships));
       const areas = areaRows.map(row => this.normalizeArea(row));
-      state.data = normalizeData({ projects, areas, items:itemRows.map(row => this.normalizeItem(row, areas)) });
+      state.data = normalizeData({ projects, areas, memberships, items:itemRows.map(row => this.normalizeItem(row, areas)) });
     }
     async create(table, record) {
+      if (table === 'projects') return this.createProject(record);
       const dbTable = table === 'items' ? 'checklist_items' : table;
       const rows = await this.request(`/rest/v1/${dbTable}`, { method:'POST', prefer:'return=representation', body:JSON.stringify(this.toDatabaseRecord(table, record, true)) });
       const raw = rows[0];
-      const row = table === 'projects' ? this.normalizeProject(raw) : table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
+      const row = table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
       state.data[table].push(row); return row;
+    }
+    async createProject(record) {
+      if (!state.session?.user?.id || !state.session?.access_token) throw new Error('La sesión no está disponible. Cierra sesión e ingresa nuevamente.');
+      const payload = this.toDatabaseRecord('projects', record, true);
+      const result = await this.request('/rest/v1/rpc/create_project_with_owner', {
+        method:'POST', body:JSON.stringify({ p_name:payload.name, p_code:payload.code, p_company:payload.company })
+      });
+      const raw = Array.isArray(result) ? result[0] : result;
+      if (!raw?.id) throw new Error('Supabase no devolvió el proyecto creado.');
+      const row = this.normalizeProject({ ...raw, access_role:'owner' });
+      row.access_role = 'owner';
+      state.data.projects.push(row);
+      state.data.memberships.push({ project_id:row.id, user_id:state.session.user.id, role:'owner' });
+      return row;
     }
     async update(table, id, changes) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
@@ -221,7 +245,7 @@
     async remove(table, id) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
       await this.request(`/rest/v1/${dbTable}?id=eq.${encodeURIComponent(id)}`, { method:'DELETE', prefer:'return=minimal' });
-      if (table === 'projects') { state.data.areas = state.data.areas.filter(x => x.project_id !== id); state.data.items = state.data.items.filter(x => x.project_id !== id); }
+      if (table === 'projects') { state.data.areas = state.data.areas.filter(x => x.project_id !== id); state.data.items = state.data.items.filter(x => x.project_id !== id); state.data.memberships = state.data.memberships.filter(x => x.project_id !== id); }
       if (table === 'areas') state.data.items = state.data.items.filter(x => x.area_id !== id);
       state.data[table] = state.data[table].filter(x => x.id !== id);
     }
@@ -347,9 +371,9 @@
     return `<article class="project-block" data-project-id="${esc(project.id)}">
       <header class="project-block__head">
         <div class="project-title-row"><button class="collapse-btn" data-action="collapse" aria-label="Contraer proyecto">⌄</button><div><span class="project-card__code">${esc(project.code || 'SIN CÓDIGO')}</span><h2>${esc(project.name)}</h2><p>${esc(project.description || 'Sin descripción')}</p><div class="project-meta"><span class="badge badge--${project.status === 'closed' ? 'closed' : 'active'}">${project.status === 'closed' ? 'Cerrado' : 'Activo'}</span><span>${areas.length} áreas</span></div></div></div>
-        <div class="project-actions"><button class="btn btn--open" data-action="open-project" data-id="${esc(project.id)}">Cronograma →</button><div class="project-progress"><b>${stats.percent}%</b><div class="mini-track"><span style="width:${stats.percent}%"></span></div></div><button class="action-btn" data-action="edit-project" data-id="${esc(project.id)}" title="Editar proyecto">✎</button><button class="action-btn action-btn--danger" data-action="delete-project" data-id="${esc(project.id)}" title="Eliminar proyecto">×</button></div>
+        <div class="project-actions"><span class="badge badge--role">${esc(ROLE_LABELS[projectRole(project.id)] || projectRole(project.id))}</span><button class="btn btn--open" data-action="open-project" data-id="${esc(project.id)}">Cronograma →</button><div class="project-progress"><b>${stats.percent}%</b><div class="mini-track"><span style="width:${stats.percent}%"></span></div></div>${canManageProject(project.id) ? `<button class="action-btn" data-action="manage-access" data-id="${esc(project.id)}" title="Administrar accesos">👥</button>` : ''}${canManageProject(project.id) ? `<button class="action-btn" data-action="edit-project" data-id="${esc(project.id)}" title="Editar proyecto">✎</button><button class="action-btn action-btn--danger" data-action="delete-project" data-id="${esc(project.id)}" title="Eliminar proyecto">×</button>` : ''}</div>
       </header>
-      <div class="project-block__body">${areas.length ? areas.map((area,index) => renderArea(area,index,visibleItems,filtering)).join('') : '<div class="empty-area space-top">Este proyecto aún no tiene áreas.</div>'}<div class="add-area-row"><button class="btn btn--secondary add-area-btn" data-action="add-area" data-project="${esc(project.id)}">＋ Agregar área</button></div></div>
+      <div class="project-block__body">${areas.length ? areas.map((area,index) => renderArea(area,index,visibleItems,filtering)).join('') : '<div class="empty-area space-top">Este proyecto aún no tiene áreas.</div>'}<div class="add-area-row">${canEditContent(project.id) ? `<button class="btn btn--secondary add-area-btn" data-action="add-area" data-project="${esc(project.id)}">＋ Agregar área</button>` : ''}</div></div>
     </article>`;
   }
 
@@ -357,15 +381,16 @@
     const allAreaItems = state.data.items.filter(i => i.area_id === area.id);
     const items = filtering ? visibleItems.filter(i => i.area_id === area.id) : allAreaItems;
     return `<section class="area-block">
-      <div class="area-head"><div class="area-head__title"><span class="area-number">ÁREA ${String(index+1).padStart(2,'0')}</span><h3>${esc(area.name)}</h3><small>${items.length}/${allAreaItems.length} visibles</small></div><div class="area-actions"><button class="action-btn" data-action="add-item" data-area="${esc(area.id)}" data-project="${esc(area.project_id)}" title="Agregar actividad">＋</button><button class="action-btn" data-action="edit-area" data-id="${esc(area.id)}" title="Editar área">✎</button><button class="action-btn action-btn--danger" data-action="delete-area" data-id="${esc(area.id)}" title="Eliminar área">×</button></div></div>
+      <div class="area-head"><div class="area-head__title"><span class="area-number">ÁREA ${String(index+1).padStart(2,'0')}</span><h3>${esc(area.name)}</h3><small>${items.length}/${allAreaItems.length} visibles</small></div><div class="area-actions">${canEditContent(area.project_id) ? `<button class="action-btn" data-action="add-item" data-area="${esc(area.id)}" data-project="${esc(area.project_id)}" title="Agregar actividad">＋</button><button class="action-btn" data-action="edit-area" data-id="${esc(area.id)}" title="Editar área">✎</button><button class="action-btn action-btn--danger" data-action="delete-area" data-id="${esc(area.id)}" title="Eliminar área">×</button>` : ''}</div></div>
       ${items.length ? `<div class="table-scroll"><table class="items-table"><thead><tr><th>Identificada</th><th>Actividad</th><th>Responsable / proveedor</th><th>Avance</th><th>Compra</th><th></th></tr></thead><tbody>${items.map(renderItemRow).join('')}</tbody></table></div>` : `<div class="empty-area">${filtering && allAreaItems.length ? 'Ninguna actividad coincide con los filtros.' : 'No hay actividades en esta área.'} <button class="text-btn" data-action="add-item" data-area="${esc(area.id)}" data-project="${esc(area.project_id)}">Agregar la primera</button></div>`}
     </section>`;
   }
 
   function renderItemRow(item) {
+    const writable = canEditContent(item.project_id);
     const purchases = `${item.solped ? `<span class="purchase-ref"><b>SOLPED</b> ${esc(item.solped)}</span>` : ''}${item.purchase_order ? `<span class="purchase-ref"><b>OC</b> ${esc(item.purchase_order)}</span>` : ''}` || '<span class="item-observation">Sin registro</span>';
     const people = `<b class="person-line">${esc(item.responsible || 'Sin responsable')}</b><span class="item-observation">${esc(item.supplier || 'Sin proveedor')}</span>`;
-    return `<tr><td>${formatDate(item.identified_on)}</td><td><span class="item-description">${esc(item.description)}</span>${item.observations ? `<span class="item-observation">${esc(item.observations)}</span>` : ''}${item.planned_start ? `<span class="schedule-line">${formatDate(item.planned_start)} → ${formatDate(item.planned_end)} · ${durationDays(item)} días</span>` : ''}</td><td>${people}</td><td><button class="badge badge--${item.status === 'ok' ? 'ok' : 'pending'}" data-action="toggle-item" data-id="${esc(item.id)}" title="Cambiar estado">${item.status === 'ok' ? '✓ OK' : `${clamp(item.progress,0,100)}%`}</button></td><td>${purchases}</td><td><div class="row-actions"><button class="action-btn" data-action="edit-item" data-id="${esc(item.id)}" title="Editar actividad">✎</button><button class="action-btn action-btn--danger" data-action="delete-item" data-id="${esc(item.id)}" title="Eliminar actividad">×</button></div></td></tr>`;
+    return `<tr><td>${formatDate(item.identified_on)}</td><td><span class="item-description">${esc(item.description)}</span>${item.observations ? `<span class="item-observation">${esc(item.observations)}</span>` : ''}${item.planned_start ? `<span class="schedule-line">${formatDate(item.planned_start)} → ${formatDate(item.planned_end)} · ${durationDays(item)} días</span>` : ''}</td><td>${people}</td><td>${writable ? `<button class="badge badge--${item.status === 'ok' ? 'ok' : 'pending'}" data-action="toggle-item" data-id="${esc(item.id)}" title="Cambiar estado">${item.status === 'ok' ? '✓ OK' : `${clamp(item.progress,0,100)}%`}</button>` : `<span class="badge badge--${item.status === 'ok' ? 'ok' : 'pending'}">${item.status === 'ok' ? '✓ OK' : `${clamp(item.progress,0,100)}%`}</span>`}</td><td>${purchases}</td><td>${writable ? `<div class="row-actions"><button class="action-btn" data-action="edit-item" data-id="${esc(item.id)}" title="Editar actividad">✎</button><button class="action-btn action-btn--danger" data-action="delete-item" data-id="${esc(item.id)}" title="Eliminar actividad">×</button></div>` : ''}</td></tr>`;
   }
 
   function openProject(projectId, tab = 'gantt') {
@@ -384,7 +409,7 @@
     $('#project-detail').innerHTML = `<section class="project-hero">
       <div><span class="project-card__code">${esc(project.code || 'SIN CÓDIGO')}</span><h2>${esc(project.name)}</h2><p>${esc(project.description || 'Sin descripción')}</p></div>
       <div class="hero-kpis"><div><strong>${stats.percent}%</strong><span>Avance promedio</span></div><div><strong>${scheduled}/${items.length}</strong><span>Programadas</span></div><div class="${late ? 'metric-alert' : ''}"><strong>${late}</strong><span>Vencidas</span></div></div>
-      <div class="hero-actions"><button class="btn btn--secondary" data-action="add-area" data-project="${esc(project.id)}">＋ Área</button><button class="btn btn--secondary" data-action="edit-project" data-id="${esc(project.id)}">✎ Editar</button></div>
+      <div class="hero-actions"><span class="badge badge--role">${esc(ROLE_LABELS[projectRole(project.id)] || projectRole(project.id))}</span>${canEditContent(project.id) ? `<button class="btn btn--secondary" data-action="add-area" data-project="${esc(project.id)}">＋ Área</button>` : ''}${canManageProject(project.id) ? `<button class="btn btn--secondary" data-action="manage-access" data-id="${esc(project.id)}">👥 Accesos</button><button class="btn btn--secondary" data-action="edit-project" data-id="${esc(project.id)}">✎ Editar</button>` : ''}</div>
     </section>
     <nav class="detail-tabs" aria-label="Vistas del proyecto"><button class="detail-tab ${state.detailTab === 'gantt' ? 'active' : ''}" data-detail-tab="gantt"><span>▤</span> Cronograma Gantt</button><button class="detail-tab ${state.detailTab === 'checklist' ? 'active' : ''}" data-detail-tab="checklist"><span>✓</span> Checklist operativo</button></nav>
     <div id="detail-tab-content">${state.detailTab === 'gantt' ? renderGantt(project, items) : renderDetailChecklist(project)}</div>`;
@@ -392,7 +417,7 @@
 
   function renderDetailChecklist(project) {
     const areas = state.data.areas.filter(a => a.project_id === project.id).sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0));
-    return `<section class="detail-panel"><div class="detail-panel__head"><div><span class="eyebrow">CONTROL OPERATIVO</span><h2>Necesidades y actividades</h2></div><button class="btn btn--primary" data-action="quick-add-item" data-project="${esc(project.id)}">＋ Nueva actividad</button></div>${areas.length ? areas.map((area,index) => renderArea(area,index)).join('') : `<div class="no-results"><strong>Crea la primera área</strong><p>Las actividades se organizan por áreas o frentes de trabajo.</p><button class="btn btn--primary" data-action="add-area" data-project="${esc(project.id)}">＋ Crear área</button></div>`}</section>`;
+    return `<section class="detail-panel"><div class="detail-panel__head"><div><span class="eyebrow">CONTROL OPERATIVO</span><h2>Necesidades y actividades</h2></div>${canEditContent(project.id) ? `<button class="btn btn--primary" data-action="quick-add-item" data-project="${esc(project.id)}">＋ Nueva actividad</button>` : ''}</div>${areas.length ? areas.map((area,index) => renderArea(area,index)).join('') : `<div class="no-results"><strong>Crea la primera área</strong><p>Las actividades se organizan por áreas o frentes de trabajo.</p><button class="btn btn--primary" data-action="add-area" data-project="${esc(project.id)}">＋ Crear área</button></div>`}</section>`;
   }
 
   function renderGantt(project, sourceItems) {
@@ -415,7 +440,7 @@
       chart = `<div class="gantt-empty"><div class="gantt-empty__icon">▤</div><strong>No hay actividades programadas</strong><p>Edita una actividad y asigna fecha de inicio y tiempo de ejecución.</p></div>`;
     }
     return `<section class="detail-panel gantt-panel">
-      <div class="gantt-toolbar"><div><span class="eyebrow">PLAN DE EJECUCIÓN</span><h2>Cronograma del proyecto</h2></div><label class="gantt-search"><span>⌕</span><input id="gantt-search" value="${esc(state.ganttSearch)}" placeholder="Buscar actividad, responsable o proveedor"></label><div class="zoom-control" aria-label="Escala del cronograma"><button data-zoom="day" class="${state.ganttZoom === 'day' ? 'active' : ''}">Día</button><button data-zoom="week" class="${state.ganttZoom === 'week' ? 'active' : ''}">Semana</button><button data-zoom="month" class="${state.ganttZoom === 'month' ? 'active' : ''}">Mes</button></div><button class="btn btn--primary" data-action="quick-add-item" data-project="${esc(project.id)}">＋ Actividad</button></div>
+      <div class="gantt-toolbar"><div><span class="eyebrow">PLAN DE EJECUCIÓN</span><h2>Cronograma del proyecto</h2></div><label class="gantt-search"><span>⌕</span><input id="gantt-search" value="${esc(state.ganttSearch)}" placeholder="Buscar actividad, responsable o proveedor"></label><div class="zoom-control" aria-label="Escala del cronograma"><button data-zoom="day" class="${state.ganttZoom === 'day' ? 'active' : ''}">Día</button><button data-zoom="week" class="${state.ganttZoom === 'week' ? 'active' : ''}">Semana</button><button data-zoom="month" class="${state.ganttZoom === 'month' ? 'active' : ''}">Mes</button></div>${canEditContent(project.id) ? `<button class="btn btn--primary" data-action="quick-add-item" data-project="${esc(project.id)}">＋ Actividad</button>` : ''}</div>
       <div class="gantt-legend"><span><i class="legend-complete"></i>Terminado</span><span><i class="legend-active"></i>En ejecución</span><span><i class="legend-late"></i>Vencido</span><span><i class="legend-future"></i>Por iniciar</span><small>Desliza el control de cada actividad para actualizar el avance.</small></div>
       ${chart}
       ${unplanned.length ? `<section class="unplanned"><div class="unplanned__title"><div><span class="eyebrow">POR COMPLETAR</span><h3>Actividades que requieren programación o corrección</h3></div><span class="count-pill">${unplanned.length}</span></div><div class="unplanned-grid">${unplanned.map(i => `<article><div><b>${esc(i.description)}</b><small>${i.planned_start && i.planned_end ? 'Rango de fechas no válido' : `${esc(i.responsible || 'Sin responsable')} · ${esc(i.supplier || 'Sin proveedor')}`}</small></div><button class="btn btn--secondary" data-action="edit-item" data-id="${esc(i.id)}">Programar →</button></article>`).join('')}</div></section>` : ''}
@@ -439,13 +464,14 @@
   }
 
   function renderGanttRow(item,axisStart,totalDays,pxPerDay,width) {
+    const writable = canEditContent(item.project_id);
     const left = diffDays(axisStart,item.planned_start) * pxPerDay;
     const days = durationDays(item), barWidth = Math.max(pxPerDay,days * pxPerDay);
     const status = scheduleStatus(item), progress = clamp(item.progress,0,100);
     const area = state.data.areas.find(candidate => candidate.id === item.area_id);
     const todayOffset = diffDays(axisStart,isoDate()) * pxPerDay;
     const todayLine = todayOffset >= 0 && todayOffset <= width ? `<i class="today-line" style="left:${todayOffset}px" title="Hoy"></i>` : '';
-    return `<div class="gantt-row" data-gantt-row="${esc(item.id)}"><div class="gantt-info"><div class="gantt-task"><button class="task-name" data-action="edit-item" data-id="${esc(item.id)}">${esc(item.description)}</button><small class="task-area">${esc(area?.name || 'Sin área')}</small><div class="gantt-progress-control"><input type="range" min="0" max="100" step="5" value="${progress}" data-progress-id="${esc(item.id)}" aria-label="Avance de ${esc(item.description)}"><output>${progress}%</output></div></div><span title="${esc(item.supplier || 'Sin proveedor')}">${esc(item.supplier || '—')}</span><span title="${esc(item.responsible || 'Sin responsable')}">${esc(item.responsible || '—')}</span><span>${days} días</span></div><div class="gantt-timeline" style="width:${width}px">${todayLine}<button class="gantt-bar gantt-bar--${status}" style="left:${left}px;width:${barWidth}px" data-action="edit-item" data-id="${esc(item.id)}" title="${esc(item.description)} · ${formatDate(item.planned_start)} a ${formatDate(item.planned_end)} · ${progress}%"><span style="width:${progress}%"></span><b>${progress}%</b></button></div></div>`;
+    return `<div class="gantt-row" data-gantt-row="${esc(item.id)}"><div class="gantt-info"><div class="gantt-task">${writable ? `<button class="task-name" data-action="edit-item" data-id="${esc(item.id)}">${esc(item.description)}</button>` : `<span class="task-name">${esc(item.description)}</span>`}<small class="task-area">${esc(area?.name || 'Sin área')}</small><div class="gantt-progress-control"><input type="range" min="0" max="100" step="5" value="${progress}" ${writable ? `data-progress-id="${esc(item.id)}"` : 'disabled'} aria-label="Avance de ${esc(item.description)}"><output>${progress}%</output></div></div><span title="${esc(item.supplier || 'Sin proveedor')}">${esc(item.supplier || '—')}</span><span title="${esc(item.responsible || 'Sin responsable')}">${esc(item.responsible || '—')}</span><span>${days} días</span></div><div class="gantt-timeline" style="width:${width}px">${todayLine}<button class="gantt-bar gantt-bar--${status}" style="left:${left}px;width:${barWidth}px" ${writable ? `data-action="edit-item" data-id="${esc(item.id)}"` : 'disabled'} title="${esc(item.description)} · ${formatDate(item.planned_start)} a ${formatDate(item.planned_end)} · ${progress}%"><span style="width:${progress}%"></span><b>${progress}%</b></button></div></div>`;
   }
 
   function emptyState(title,text) { return `<div class="no-results"><strong>${esc(title)}</strong><p>${esc(text)}</p></div>`; }
@@ -589,11 +615,51 @@
   }
 
   async function updateProgress(id,value) {
+    const itemCheck = state.data.items.find(i=>i.id===id); if (!itemCheck || !requirePermission(canEditContent(itemCheck.project_id))) return;
     const progress = clamp(value,0,100), item = state.data.items.find(i => i.id === id); if (!item) return;
     try { await service.update('items',id,{ progress,status:progress === 100 ? 'ok' : 'pending' }); renderApp(); toast(`Avance actualizado a ${progress}%.`); }
     catch (error) { toast(error.message,'error'); renderApp(); }
   }
 
+  async function openAccessManager(projectId) {
+    if (!requirePermission(canManageProject(projectId), 'Solo el propietario o un administrador puede gestionar accesos.')) return;
+    const project = state.data.projects.find(p => p.id === projectId);
+    state.accessProjectId = projectId;
+    $('#access-project-name').textContent = project?.name || 'Proyecto';
+    $('#access-error').textContent = '';
+    $('#member-email').value = '';
+    $('#member-role').value = 'viewer';
+    $('#access-members').innerHTML = '<p class="empty-mini">Cargando accesos…</p>';
+    $('#access-dialog').showModal();
+    try { state.accessMembers = await service.listProjectMembers(projectId); renderAccessMembers(); }
+    catch (error) { $('#access-error').textContent = error.message; }
+  }
+  function renderAccessMembers() {
+    const rows = [...state.accessMembers].sort((a,b) => Number(Boolean(b.is_owner))-Number(Boolean(a.is_owner)) || String(a.email).localeCompare(String(b.email)));
+    $('#access-members').innerHTML = rows.length ? rows.map(member => {
+      const isOwner = Boolean(member.is_owner) || member.role === 'owner';
+      const options = ['admin','editor','viewer'].map(role => `<option value="${role}"${member.role === role ? ' selected' : ''}>${esc(ROLE_LABELS[role])}</option>`).join('');
+      return `<div class="member-row" data-user-id="${esc(member.user_id)}"><div class="member-avatar">${esc(String(member.email||'?').slice(0,2).toUpperCase())}</div><div class="member-identity"><b>${esc(member.email||'Usuario')}</b><small>${isOwner ? 'Propietario original · acceso permanente' : 'Miembro del proyecto'}</small></div>${isOwner ? `<span class="badge badge--role">${esc(ROLE_LABELS.owner)}</span>` : `<select class="member-role-select">${options}</select><button type="button" class="action-btn" data-access-action="save-role">✓</button><button type="button" class="action-btn action-btn--danger" data-access-action="remove-member">×</button>`}</div>`;
+    }).join('') : '<p class="empty-mini">No hay miembros adicionales.</p>';
+  }
+  async function addProjectMember(event) {
+    event.preventDefault();
+    const email=$('#member-email').value.trim(), role=$('#member-role').value;
+    $('#access-error').textContent='';
+    if (!email) { $('#access-error').textContent='Ingresa el correo del usuario.'; return; }
+    try { await service.saveProjectMember(state.accessProjectId,email,role); state.accessMembers=await service.listProjectMembers(state.accessProjectId); $('#member-email').value=''; renderAccessMembers(); toast('Acceso agregado o actualizado.'); }
+    catch(error) { $('#access-error').textContent=error.message; }
+  }
+  async function handleAccessListClick(event) {
+    const button=event.target.closest('[data-access-action]'); if(!button) return;
+    const row=button.closest('[data-user-id]'), userId=row?.dataset.userId;
+    const member=state.accessMembers.find(m=>m.user_id===userId); if(!member || member.is_owner || member.role==='owner') return;
+    try {
+      if(button.dataset.accessAction==='save-role') await service.saveProjectMember(state.accessProjectId,member.email,$('.member-role-select',row).value);
+      else await service.removeProjectMember(state.accessProjectId,userId);
+      state.accessMembers=await service.listProjectMembers(state.accessProjectId); renderAccessMembers(); toast('Accesos actualizados.');
+    } catch(error) { $('#access-error').textContent=error.message; }
+  }
   function exportCsv() {
     const scope = state.view === 'project-detail' ? state.data.items.filter(i => i.project_id === state.selectedProjectId) : state.data.items;
     const headers = ['Proyecto','Código','Área','Identificada','Actividad','Estado','Avance %','Responsable','Proveedor','Inicio','Fin','Tiempo de ejecución (días)','Observaciones','SOLPED','OC'];
@@ -609,26 +675,33 @@
 
   function handleAction(target) {
     const action = target.dataset.action;
+    const projectId = target.dataset.project || target.dataset.id || state.selectedProjectId;
     if (action === 'collapse') target.closest('.project-block').classList.toggle('collapsed');
+    if (action === 'manage-access') openAccessManager(target.dataset.id);
     if (action === 'open-project') openProject(target.dataset.id);
-    if (action === 'edit-project') openForm('project',target.dataset.id);
-    if (action === 'delete-project') askDelete('project',target.dataset.id);
-    if (action === 'add-area') openForm('area',null,{projectId:target.dataset.project});
-    if (action === 'edit-area') openForm('area',target.dataset.id);
-    if (action === 'delete-area') askDelete('area',target.dataset.id);
-    if (action === 'quick-add-item') quickAddItem(target.dataset.project);
-    if (action === 'add-item') openForm('item',null,{areaId:target.dataset.area,projectId:target.dataset.project});
-    if (action === 'edit-item') openForm('item',target.dataset.id);
-    if (action === 'delete-item') askDelete('item',target.dataset.id);
-    if (action === 'toggle-item') toggleItem(target.dataset.id);
+    if (action === 'edit-project' && requirePermission(canManageProject(target.dataset.id))) openForm('project',target.dataset.id);
+    if (action === 'delete-project' && requirePermission(canManageProject(target.dataset.id))) askDelete('project',target.dataset.id);
+    if (action === 'add-area' && requirePermission(canEditContent(target.dataset.project))) openForm('area',null,{projectId:target.dataset.project});
+    if (action === 'edit-area') { const a=state.data.areas.find(x=>x.id===target.dataset.id); if (a && requirePermission(canEditContent(a.project_id))) openForm('area',target.dataset.id); }
+    if (action === 'delete-area') { const a=state.data.areas.find(x=>x.id===target.dataset.id); if (a && requirePermission(canEditContent(a.project_id))) askDelete('area',target.dataset.id); }
+    if (action === 'quick-add-item' && requirePermission(canEditContent(target.dataset.project))) quickAddItem(target.dataset.project);
+    if (action === 'add-item' && requirePermission(canEditContent(target.dataset.project))) openForm('item',null,{areaId:target.dataset.area,projectId:target.dataset.project});
+    if (action === 'edit-item') { const i=state.data.items.find(x=>x.id===target.dataset.id); if (i && requirePermission(canEditContent(i.project_id))) openForm('item',target.dataset.id); }
+    if (action === 'delete-item') { const i=state.data.items.find(x=>x.id===target.dataset.id); if (i && requirePermission(canEditContent(i.project_id))) askDelete('item',target.dataset.id); }
+    if (action === 'toggle-item') { const i=state.data.items.find(x=>x.id===target.dataset.id); if (i && requirePermission(canEditContent(i.project_id))) toggleItem(target.dataset.id); }
   }
 
   function bindEvents() {
     $$('.nav-link').forEach(btn => btn.addEventListener('click',() => switchView(btn.dataset.view)));
     $('[data-go-projects]').addEventListener('click',() => switchView('projects'));
     $('#detail-back-btn').addEventListener('click',() => switchView('projects'));
-    $('#add-project-btn').addEventListener('click',() => state.view === 'project-detail' ? quickAddItem(state.selectedProjectId) : openForm('project'));
+    $('#add-project-btn').addEventListener('click',() => state.view === 'project-detail' ? (requirePermission(canEditContent(state.selectedProjectId)) && quickAddItem(state.selectedProjectId)) : openForm('project'));
     $('#export-btn').addEventListener('click',exportCsv); $('#entity-form').addEventListener('submit',saveForm); $('#confirm-delete-btn').addEventListener('click',confirmDelete);
+    $('#access-form').addEventListener('submit',addProjectMember);
+    $('#access-members').addEventListener('click',handleAccessListClick);
+    $$('[data-close-dialog]').forEach(btn => btn.addEventListener('click',() => document.getElementById(btn.dataset.closeDialog)?.close()));
+    $$('.modal').forEach(dialog => dialog.addEventListener('click',e => { if (e.target === dialog) dialog.close(); }));
+
     $('#search-input').addEventListener('input',e => { state.filters.search = e.target.value; renderProjects(); });
     $('#project-filter').addEventListener('change',e => { state.filters.project = e.target.value; renderProjects(); });
     $('#status-filter').addEventListener('change',e => { state.filters.status = e.target.value; renderProjects(); });
