@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#102638">
-  <meta name="description" content="Control operativo de proyectos, checklist y cronogramas Gantt.">
-  <title>Bitácora de proyectos</title>
+  <meta name="description" content="Checklist jerárquico de necesidades por proyecto y área.">
+  <title>Checklist de proyectos</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23102638'/%3E%3Cpath d='M17 17h30v30H17z' fill='none' stroke='%23f4b41a' stroke-width='5'/%3E%3Cpath d='m23 32 6 6 13-15' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -16,12 +16,12 @@
     <div class="auth-panel">
       <div class="brand-lockup brand-lockup--dark">
         <span class="brand-mark" aria-hidden="true"><span></span></span>
-        <div><b>BITÁCORA</b><small>Control de proyectos</small></div>
+        <div><b>Checklist de proyectos</b><small>Control de necesidades</small></div>
       </div>
       <div class="auth-copy">
         <span class="eyebrow">ACCESO SEGURO</span>
-        <h1 id="auth-title">Del pendiente<br>al cumplimiento.</h1>
-        <p>Controla necesidades, responsables, proveedores y tiempos de ejecución desde un cronograma visual fácil de leer.</p>
+        <h1 id="auth-title">Cada necesidad,<br>hasta quedar resuelta.</h1>
+        <p>Organiza proyectos, áreas y actividades con una trazabilidad simple: qué hace falta, desde cuándo y en qué estado está.</p>
       </div>
       <form id="auth-form" class="auth-form">
         <label>Correo electrónico<input id="auth-email" type="email" autocomplete="email" required placeholder="nombre@empresa.com"></label>
@@ -34,10 +34,10 @@
     </div>
     <aside class="auth-aside" aria-hidden="true">
       <div class="blueprint-card">
-        <span>PROYECTO / CRONOGRAMA</span>
+        <span>PROYECTO / 02</span>
         <strong>Sistema de AA<br>Farmacia</strong>
         <div class="blueprint-line"><i></i><b>75%</b></div>
-        <ul><li class="done">Contrato y anticipo</li><li class="done">Suministro de equipos</li><li>Instalación</li><li>Puesta en marcha</li></ul>
+        <ul><li class="done">Contrato Daikin</li><li class="done">Cronograma Daikin</li><li>Fichas técnicas</li><li>Diagrama unifilar</li></ul>
       </div>
     </aside>
   </section>
@@ -46,7 +46,7 @@
     <aside class="sidebar">
       <div class="brand-lockup">
         <span class="brand-mark" aria-hidden="true"><span></span></span>
-        <div><b>BITÁCORA</b><small>Control de proyectos</small></div>
+        <div><b>BITÁCORA</b><small>Control de necesidades</small></div>
       </div>
       <nav class="sidebar-nav" aria-label="Navegación principal">
         <button class="nav-link active" data-view="dashboard"><span class="nav-icon">⌁</span>Resumen</button>
@@ -66,8 +66,7 @@
     <main class="main-content">
       <header class="topbar">
         <div>
-          <button id="detail-back-btn" class="back-link hidden" type="button">← Volver a proyectos</button>
-          <span class="eyebrow" id="page-eyebrow">TABLERO OPERATIVO</span>
+          <span class="eyebrow">TABLERO OPERATIVO</span>
           <h1 id="page-title">Resumen de avance</h1>
           <p id="today-label"></p>
         </div>
@@ -86,7 +85,7 @@
         </section>
         <div class="section-heading">
           <div><span class="eyebrow">PORTAFOLIO</span><h2>Proyectos activos</h2></div>
-          <button class="text-btn" data-go-projects>Ver todos →</button>
+          <button class="text-btn" data-go-projects>Ver detalle →</button>
         </div>
         <div id="project-cards" class="project-cards"></div>
         <div class="dashboard-bottom">
@@ -103,7 +102,7 @@
 
       <section id="projects-view" class="view hidden">
         <div class="filter-bar">
-          <label class="search-field"><span>⌕</span><input id="search-input" type="search" placeholder="Buscar proyecto, área, actividad, proveedor, responsable…"></label>
+          <label class="search-field"><span>⌕</span><input id="search-input" type="search" placeholder="Buscar proyecto, área, necesidad, SOLPED u OC…"></label>
           <label><span>Proyecto</span><select id="project-filter"><option value="all">Todos</option></select></label>
           <label><span>Estado</span><select id="status-filter"><option value="all">Todos</option><option value="pending">Pendiente</option><option value="ok">OK</option></select></label>
           <label><span>Compra</span><select id="purchase-filter"><option value="all">Todas</option><option value="with">Con SOLPED/OC</option><option value="without">Sin SOLPED/OC</option></select></label>
@@ -111,10 +110,6 @@
         </div>
         <div class="results-line"><span id="results-count">0 ítems</span><span id="filters-active"></span></div>
         <div id="project-list" class="project-list"></div>
-      </section>
-
-      <section id="project-detail-view" class="view hidden" aria-live="polite">
-        <div id="project-detail"></div>
       </section>
     </main>
   </div>
@@ -135,6 +130,21 @@
       <p id="confirm-message">Esta acción no se puede deshacer.</p>
       <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="confirm-delete-btn" class="btn btn--danger" value="confirm">Eliminar</button></div>
     </form>
+  </dialog>
+
+  <dialog id="access-dialog" class="modal modal--access">
+    <div class="access-dialog-content">
+      <div class="modal-head"><div><span class="eyebrow">SEGURIDAD DEL PROYECTO</span><h2>Administrar accesos</h2><p id="access-project-name" class="modal-subtitle"></p></div><button id="access-close-btn" class="icon-btn" type="button" aria-label="Cerrar">×</button></div>
+      <form id="access-form" class="access-form">
+        <label class="access-email-field">Correo del usuario<input id="member-email" type="email" autocomplete="off" required placeholder="nombre@empresa.com"></label>
+        <label>Rol<select id="member-role" required><option value="admin">Administrador/Propietario</option><option value="editor" selected>Editor</option><option value="viewer">Visualizador</option></select></label>
+        <button class="btn btn--primary" type="submit">Agregar acceso</button>
+      </form>
+      <div class="role-guide" aria-label="Permisos por rol"><span><b>Administrador</b> Control total y usuarios</span><span><b>Editor</b> Actualiza checklist y Gantt</span><span><b>Visualizador</b> Solo lectura</span></div>
+      <p id="access-error" class="form-error" role="alert"></p>
+      <div class="member-list-head"><span>Usuarios con acceso</span><small>El propietario original no puede eliminarse</small></div>
+      <div id="access-members" class="member-list"></div>
+    </div>
   </dialog>
 
   <div id="toast-region" class="toast-region" aria-live="polite"></div>

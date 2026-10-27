@@ -1,13 +1,43 @@
-import { access, readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 
-const root = path.resolve(import.meta.dirname, '..');
-const required = ['index.html','styles.css','app.js','config.example.js','supabase/migrations/202610270001_gantt_fields.sql'];
-for (const file of required) await access(path.join(root,file));
-const html = await readFile(path.join(root,'index.html'),'utf8');
-const js = await readFile(path.join(root,'app.js'),'utf8');
-const css = await readFile(path.join(root,'styles.css'),'utf8');
-for (const id of ['project-detail-view','project-detail','detail-back-btn']) if (!html.includes(`id=\"${id}\"`)) throw new Error(`Falta #${id} en index.html`);
-for (const token of ['renderGantt','supplier','responsible','planned_start','progress']) if (!js.includes(token)) throw new Error(`Falta ${token} en app.js`);
-for (const token of ['.gantt-board','.gantt-bar','.project-hero']) if (!css.includes(token)) throw new Error(`Falta ${token} en styles.css`);
-console.log('Verificación estructural completada.');
+const required = [
+  'index.html',
+  'styles.css',
+  'app.js',
+  'config.js',
+  'config.example.js',
+  'supabase/migrations/202610270001_project_access.sql'
+];
+
+await Promise.all(required.map(file => access(file, constants.R_OK)));
+
+const [html, js, sql] = await Promise.all([
+  readFile('index.html', 'utf8'),
+  readFile('app.js', 'utf8'),
+  readFile('supabase/migrations/202610270001_project_access.sql', 'utf8')
+]);
+
+const requiredIds = [
+  'app', 'auth-screen', 'project-list', 'entity-form', 'confirm-dialog',
+  'access-dialog', 'access-form', 'access-members', 'member-email', 'member-role'
+];
+const missingIds = requiredIds.filter(id => !html.includes(`id="${id}"`));
+if (missingIds.length) throw new Error(`Faltan IDs en index.html: ${missingIds.join(', ')}`);
+
+const requiredAccessHooks = [
+  'get_project_members', 'manage_project_member', 'remove_project_member',
+  'canEditContent', 'canManageProject', 'openAccessManager'
+];
+const missingHooks = requiredAccessHooks.filter(hook => !js.includes(hook));
+if (missingHooks.length) throw new Error(`Faltan integraciones de acceso en app.js: ${missingHooks.join(', ')}`);
+
+const requiredSql = [
+  'project_members', 'enable row level security', 'projects_select',
+  'checklist_items_update', 'manage_project_member', 'remove_project_member'
+];
+const lowerSql = sql.toLowerCase();
+const missingSql = requiredSql.filter(token => !lowerSql.includes(token));
+if (missingSql.length) throw new Error(`La migración RLS está incompleta: ${missingSql.join(', ')}`);
+
+console.log('Verificación completada: archivos, interfaz de accesos y migración RLS presentes.');

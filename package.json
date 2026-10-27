@@ -1,8 +1,8 @@
 {
-  "name": "bitacora-proyectos-gantt",
-  "version": "2.0.0",
+  "name": "bitacora-proyectos",
+  "version": "1.0.0",
   "private": true,
-  "description": "Control de proyectos con checklist y cronograma Gantt interactivo.",
+  "description": "Checklist jerárquico de necesidades por proyecto y área.",
   "scripts": {
     "build": "node scripts/build.mjs",
     "preview": "npx serve dist",
