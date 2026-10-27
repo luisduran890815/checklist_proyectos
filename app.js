@@ -252,6 +252,20 @@
   }
 
   const service = DEMO ? new DemoService() : new SupabaseService();
+  const ROLE_LABELS = { owner:'Propietario', admin:'Administrador', editor:'Editor', viewer:'Visualizador' };
+  function projectRole(projectId) {
+    const project = state.data.projects.find(p => p.id === projectId);
+    if (!project) return 'viewer';
+    if (project.access_role) return String(project.access_role).toLowerCase();
+    if (project.owner_id && project.owner_id === state.session?.user?.id) return 'owner';
+    return state.data.memberships.find(m => m.project_id === projectId && m.user_id === state.session?.user?.id)?.role || 'viewer';
+  }
+  function canEditContent(projectId) { return ['owner','admin','editor'].includes(projectRole(projectId)); }
+  function canManageProject(projectId) { return ['owner','admin'].includes(projectRole(projectId)); }
+  function requirePermission(allowed, message='No tienes permisos para realizar esta acción.') {
+    if (!allowed) { toast(message,'error'); return false; }
+    return true;
+  }
 
   function toast(message, type = 'success') {
     const el = document.createElement('div');

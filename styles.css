@@ -357,7 +357,6 @@ h2 { margin: 4px 0 0; font: 850 21px/1.2 var(--display); letter-spacing: -.01em;
 .gantt-task { min-width:0; padding:8px; }
 .task-name { display:block; width:100%; overflow:hidden; padding:0; border:0; background:transparent; color:var(--ink); font-size:11px; font-weight:800; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
 .task-name:hover { color:var(--green); text-decoration:underline; }
-.task-area { display:block; margin-top:3px; overflow:hidden; color:var(--muted); font-size:8px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
 .gantt-progress-control { display:grid; grid-template-columns:1fr 34px; gap:6px; align-items:center; margin-top:7px; }
 .gantt-progress-control input { width:100%; height:4px; accent-color:var(--green); cursor:pointer; }
 .gantt-progress-control output { color:var(--muted); font-size:9px; font-weight:850; text-align:right; }
@@ -442,3 +441,18 @@ h2 { margin: 4px 0 0; font: 850 21px/1.2 var(--display); letter-spacing: -.01em;
   .items-table td:nth-child(4)::before { content:"Avance · "; color:var(--muted); font-size:9px; }
   .items-table td:nth-child(5)::before { content:"Compra · "; color:var(--muted); font-size:9px; }
 }
+
+/* ===== Administracion de accesos por proyecto ===== */
+.badge--role{color:#284f68;background:var(--blue-soft);border:1px solid #cbdce7}
+.modal--access{width:min(760px,calc(100vw - 30px));padding:23px}
+.modal--access .modal-head{padding:0 0 17px}.modal--access .modal-head p{margin:6px 0 0;color:var(--muted);font-size:12px}
+.access-form{display:grid;grid-template-columns:minmax(220px,1fr) 180px auto;gap:10px;align-items:end;padding:18px 0 8px!important}
+.access-form label{display:grid;gap:6px;color:var(--ink-2);font-size:11px;font-weight:800}
+.access-form input,.access-form select,.member-role-select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fbfcfb;color:var(--ink)}
+.access-help{margin:7px 0 18px;padding:11px 12px;border-radius:8px;color:var(--muted);background:#f3f6f5;font-size:10px;line-height:1.5}
+.access-members{display:grid;gap:8px;margin-top:10px;max-height:320px;overflow:auto}
+.member-row{display:grid;grid-template-columns:38px minmax(180px,1fr) minmax(130px,170px) 31px 31px;gap:9px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.member-avatar{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;color:var(--ink);background:var(--amber-soft);font-size:10px;font-weight:900}
+.member-identity{min-width:0}.member-identity b,.member-identity small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.member-identity b{font-size:11px}.member-identity small{margin-top:4px;color:var(--muted);font-size:9px}
+.gantt-bar:disabled{cursor:default;opacity:1}.gantt-progress-control input:disabled{cursor:not-allowed;opacity:.65}
+@media(max-width:700px){.access-form{grid-template-columns:1fr}.member-row{grid-template-columns:36px 1fr 31px 31px}.member-role-select{grid-column:2/-1}.member-row .badge--role{grid-column:2/-1;justify-self:start}}
