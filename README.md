@@ -71,7 +71,7 @@ bitacora-proyectos/
 | Campo | Tipo | Uso |
 |---|---|---|
 | `id` | UUID | Identificador |
-| `user_id` | UUID | Propietario autenticado |
+| `owner_id` | UUID | Propietario autenticado e inmutable |
 | `name` | text | Nombre del proyecto |
 | `code` | text | Código opcional |
 | `description` | text | Alcance opcional |
@@ -151,7 +151,8 @@ La seguridad se aplica en dos capas:
 - La interfaz oculta y bloquea acciones no permitidas según el rol.
 - Supabase RLS vuelve a validar cada lectura y escritura, de modo que ocultar botones no es la única protección.
 - `projects.owner_id` conserva al propietario original; no puede cambiarse desde el API ni eliminarse de `project_members`.
-- Al crear un proyecto, un trigger registra automáticamente su membresía `owner`.
+- Al crear un proyecto, la función segura `create_project_with_owner` toma el propietario directamente de `auth.uid()` y registra la membresía `owner` en la misma transacción.
+- El frontend siempre envía el JWT de la sesión en `Authorization: Bearer …`; la clave pública `anon` se usa únicamente como `apikey` y respaldo para los endpoints de autenticación.
 - Las funciones RPC permiten buscar un usuario por correo y administrar su membresía sin exponer la tabla `auth.users`.
 - Si ya existe una tabla cuyo nombre contiene `gantt` y tiene columna `project_id`, la migración le aplica la misma matriz RLS. No crea ni altera datos del Gantt.
 
@@ -237,7 +238,8 @@ npx serve dist
 - **`Invalid login credentials`:** verifique cuenta, contraseña y confirmación de correo.
 - **No aparecen registros:** confirme que la migración de accesos se ejecutó y que el usuario figura como propietario o miembro del proyecto.
 - **No existe una cuenta registrada con ese correo:** pida al usuario crear o confirmar primero su cuenta en Supabase Authentication.
-- **Error RLS al guardar:** no deshabilite RLS; revise que la sesión siga activa y que el usuario tenga rol Propietario, Administrador o Editor.
+- **Error RLS al crear un proyecto:** ejecute nuevamente `supabase/migrations/202610270001_project_access.sql`, publique el nuevo `app.js` y vuelva a iniciar sesión. No deshabilite RLS.
+- **Error RLS al guardar áreas, checklist o Gantt:** revise que la sesión siga activa y que el usuario tenga rol Propietario, Administrador o Editor.
 - **Netlify muestra demo:** revise las variables del sitio y lance un nuevo deploy sin caché.
 - **GitHub Pages muestra demo:** defina `DEMO_MODE=false` como variable del repositorio y agregue los dos secretos.
 

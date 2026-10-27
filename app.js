@@ -124,15 +124,24 @@
       this.key = CONFIG.SUPABASE_ANON_KEY;
     }
     headers(prefer) {
-      const headers = { apikey: this.key, Authorization: `Bearer ${state.session?.access_token || this.key}`, 'Content-Type': 'application/json' };
+      const token = state.session?.access_token || this.key;
+      const headers = { apikey: this.key, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
       if (prefer) headers.Prefer = prefer;
       return headers;
     }
     async request(path, options = {}) {
       const response = await fetch(`${this.base}${path}`, { ...options, headers: { ...this.headers(options.prefer), ...(options.headers || {}) } });
       const text = await response.text();
-      const payload = text ? JSON.parse(text) : null;
-      if (!response.ok) throw new Error(payload?.msg || payload?.message || payload?.error_description || 'No fue posible completar la operación.');
+      let payload = null;
+      try { payload = text ? JSON.parse(text) : null; }
+      catch (_) { payload = text || null; }
+      if (!response.ok) {
+        const error = new Error(payload?.msg || payload?.message || payload?.error_description || (typeof payload === 'string' ? payload : '') || 'No fue posible completar la operación.');
+        error.status = response.status;
+        error.code = payload?.code || '';
+        error.details = payload?.details || '';
+        throw error;
+      }
       return payload;
     }
     async signIn(email, password) {
@@ -226,14 +235,42 @@
       state.data = { projects, areas, items, memberships };
     }
     async create(table, record) {
+      if (table === 'projects') return this.createProject(record);
       const dbTable = table === 'items' ? 'checklist_items' : table;
       const payload = this.toDatabaseRecord(table, record, true);
       const rows = await this.request(`/rest/v1/${dbTable}`, { method: 'POST', prefer: 'return=representation', body: JSON.stringify(payload) });
       const raw = rows[0];
-      const row = table === 'projects' ? this.normalizeProject(raw) : table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
-      if (table === 'projects') row.access_role = 'owner';
+      const row = table === 'areas' ? this.normalizeArea(raw) : this.normalizeItem(raw);
       state.data[table].push(row);
       return row;
+    }
+    async createProject(record) {
+      const currentUserId = state.session?.user?.id;
+      if (!currentUserId || !state.session?.access_token) {
+        throw new Error('La sesión no está disponible. Cierra sesión, ingresa nuevamente e intenta crear el proyecto.');
+      }
+      const payload = this.toDatabaseRecord('projects', record, true);
+      try {
+        const result = await this.request('/rest/v1/rpc/create_project_with_owner', {
+          method: 'POST',
+          body: JSON.stringify({ p_name: payload.name, p_code: payload.code, p_company: payload.company })
+        });
+        const raw = Array.isArray(result) ? result[0] : result;
+        if (!raw?.id) throw new Error('Supabase no devolvió el proyecto creado.');
+        const row = this.normalizeProject(raw);
+        row.access_role = 'owner';
+        state.data.projects.push(row);
+        state.data.memberships.push({ project_id: row.id, user_id: currentUserId, role: 'owner' });
+        return row;
+      } catch (error) {
+        if (error.code === 'PGRST202' || /create_project_with_owner/i.test(error.message)) {
+          throw new Error('Falta aplicar en Supabase la migración 202610270001_project_access.sql incluida en el proyecto.');
+        }
+        if (/row-level security|violates.*policy/i.test(error.message)) {
+          throw new Error('Supabase rechazó la creación por RLS. Ejecuta nuevamente la migración 202610270001_project_access.sql y vuelve a iniciar sesión.');
+        }
+        throw error;
+      }
     }
     async update(table, id, changes) {
       const dbTable = table === 'items' ? 'checklist_items' : table;
@@ -521,10 +558,20 @@
     setTimeout(() => $('#form-fields input, #form-fields select, #form-fields textarea')?.focus(), 30);
   }
 
+  function closeFormDialog() {
+    const dialog = $('#form-dialog');
+    if (dialog.open) dialog.close('cancel');
+  }
+
   async function saveForm(event) {
     event.preventDefault();
+    if (!state.editing) return;
     const { entity, id, context } = state.editing;
     const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const submit = $('#form-submit');
+    const originalLabel = submit.textContent;
+    submit.disabled = true;
+    submit.textContent = id ? 'Guardando…' : 'Creando…';
     try {
       if (entity === 'project') {
         if (id && !canManageProject(id)) throw new Error('Solo el propietario o un administrador puede modificar el proyecto.');
@@ -546,7 +593,12 @@
         id ? await service.update('items', id, data) : await service.create('items', data);
       }
       $('#form-dialog').close(); renderApp(); toast(id ? 'Registro actualizado.' : 'Registro creado.');
-    } catch (error) { $('#form-error').textContent = error.message; }
+    } catch (error) {
+      $('#form-error').textContent = error.message;
+    } finally {
+      submit.disabled = false;
+      submit.textContent = originalLabel;
+    }
   }
 
   function askDelete(entity, id) {
@@ -676,6 +728,14 @@
     $('#add-project-btn').addEventListener('click', () => openForm('project'));
     $('#export-btn').addEventListener('click', exportCsv);
     $('#entity-form').addEventListener('submit', saveForm);
+    $$('[data-close-form-dialog]').forEach(button => button.addEventListener('click', closeFormDialog));
+    $('#form-dialog').addEventListener('close', () => {
+      state.editing = null;
+      $('#form-error').textContent = '';
+    });
+    $('#form-dialog').addEventListener('click', event => {
+      if (event.target === event.currentTarget) closeFormDialog();
+    });
     $('#confirm-delete-btn').addEventListener('click', confirmDelete);
     $('#access-form').addEventListener('submit', addProjectMember);
     $('#access-members').addEventListener('click', handleAccessListClick);

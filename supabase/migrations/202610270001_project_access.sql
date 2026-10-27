@@ -186,6 +186,51 @@ create trigger sync_project_owner_membership_trigger
 after insert on public.projects
 for each row execute function public.sync_project_owner_membership();
 
+-- Creación atómica y segura de proyectos. El frontend no decide el owner_id:
+-- siempre se toma de auth.uid(), y la membresía owner se guarda en la misma transacción.
+create or replace function public.create_project_with_owner(
+  p_name text,
+  p_code text default null,
+  p_company text default null
+)
+returns public.projects
+language plpgsql
+security definer
+set search_path = public, pg_temp
+set row_security = off
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_project public.projects;
+begin
+  if v_user_id is null then
+    raise exception 'Debes iniciar sesión para crear un proyecto';
+  end if;
+
+  if nullif(trim(p_name), '') is null then
+    raise exception 'El nombre del proyecto es obligatorio';
+  end if;
+
+  insert into public.projects(owner_id, code, name, company)
+  values (
+    v_user_id,
+    coalesce(nullif(trim(p_code), ''), 'PRY-' || right((extract(epoch from clock_timestamp()) * 1000)::bigint::text, 6)),
+    trim(p_name),
+    nullif(trim(p_company), '')
+  )
+  returning * into v_project;
+
+  insert into public.project_members(project_id, user_id, role)
+  values (v_project.id, v_user_id, 'owner')
+  on conflict (project_id, user_id) do update set role = 'owner';
+
+  return v_project;
+end;
+$$;
+
+revoke all on function public.create_project_with_owner(text, text, text) from public, anon;
+grant execute on function public.create_project_with_owner(text, text, text) to authenticated;
+
 -- API segura para la interfaz: no expone auth.users de forma general.
 create or replace function public.get_project_members(p_project_id uuid)
 returns table(user_id uuid, email text, role text, is_owner boolean)

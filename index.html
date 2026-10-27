@@ -115,11 +115,11 @@
   </div>
 
   <dialog id="form-dialog" class="modal">
-    <form id="entity-form" method="dialog">
-      <div class="modal-head"><div><span id="modal-eyebrow" class="eyebrow">NUEVO REGISTRO</span><h2 id="modal-title">Crear</h2></div><button class="icon-btn" value="cancel" aria-label="Cerrar">×</button></div>
+    <form id="entity-form">
+      <div class="modal-head"><div><span id="modal-eyebrow" class="eyebrow">NUEVO REGISTRO</span><h2 id="modal-title">Crear</h2></div><button id="form-close-btn" class="icon-btn" type="button" data-close-form-dialog aria-label="Cerrar">×</button></div>
       <div id="form-fields" class="form-fields"></div>
       <p id="form-error" class="form-error" role="alert"></p>
-      <div class="modal-actions"><button class="btn btn--ghost" value="cancel">Cancelar</button><button id="form-submit" class="btn btn--primary" type="submit">Guardar</button></div>
+      <div class="modal-actions"><button id="form-cancel-btn" class="btn btn--ghost" type="button" data-close-form-dialog>Cancelar</button><button id="form-submit" class="btn btn--primary" type="submit">Guardar</button></div>
     </form>
   </dialog>
 
